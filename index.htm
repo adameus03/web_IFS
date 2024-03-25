@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Adjustable</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+
+<body>
+    <style>
+        body {
+            overflow: hidden;
+        }
+
+        canvas {
+            position: absolute;
+        }
+
+        #canvas {
+            left: 0;
+            top: 0;
+            width: 100vh;
+            height: 99.4vh;
+            border: solid purple;
+            /*z-index: 1;*/
+        }
+
+        #canvas1 {
+            left: 100.6vh;
+            top: 0;
+            width: 50vh;
+            height: 50vh;
+            border: solid green;
+        }
+
+        #canvas2 {
+            left: 100.6vh;
+            top: 50vh;
+            width: 50vh;
+            height: 49.4vh;
+            border: solid green;
+        }
+
+        #div1 {
+            position: absolute;
+            left: 151.2vh;
+            top: 0;
+            width: calc(100vw - 151.8vh);
+            height: 49.4vh;
+            border: solid orange;
+            background-color: #333;
+        }
+
+        #canvas3 {
+            position: absolute;
+            left: 151.2vh;
+            top: 50vh;
+            width: calc(100vw - 151.8vh);
+            height: 49.4vh;
+            border: solid orange;
+        }
+
+        #cmd {
+            background-color: #000;
+            color: greenyellow;
+            margin: 1vh;
+            padding: 1vh;
+            font-size: 5vh;
+        }
+
+        #cmd_explainer {
+            /*display: none;*/
+            position: relative;
+            overflow-y: scroll;
+            height: 80%;
+            color: #FFF;
+            margin: 1vh;
+            padding: 1vh;
+        }
+    </style>
+    <canvas id='canvas'></canvas>
+    <canvas id='canvas1'></canvas>
+    <canvas id='canvas2'></canvas>
+    <div id='div1'>
+        <div id='cmd' contenteditable></div>
+        <div id='cmd_explainer'>
+            <big><u>Commands</u></big>
+            <p>up [up_down_attr] - accesses the top window,</p>
+            <p>down [up_down_attr] - accesses the bottom window,</p>
+            <p>save [ifs_name] - saves the IFS to the database,</p>
+            <p>load [ifs_name] - loads the IFS given its name</p>
+            <p>init [num_funcs] - initializes and renders a random IFS</p>
+            <p>boost [n]- renders the ifs</p>
+            <big><u>Attributes</u></big>
+            <p>[up_down_attr] - one of the following values:
+            <ul>
+                <li>all - displays all transformation triangles</li>
+                <li>id - displays the identity transformation triangle</li>
+                <li>null - clears the window</li>
+            </ul>
+            or a number indicating the transformation triangle index,
+            </p>
+            <p>[ifs_name] - name of the current IFS to be saved in the database</p>
+            <p>[num_funcs] - a number specifying how many functions is the IFS going to possess</p>
+            <p>[n] - a natural number. The higher [n] given, the less blurred the image, but it will take longer to process</p>
+        </div>
+    </div>
+    <canvas id='canvas3'></canvas>
+    <script>
+        var canvas, context;
+        var canvas1, context1;
+        var canvas2, context2;
+        var cmd;
+        var x_min = x_max = y_min = y_max = null;
+        var w, h;
+        var points = [];
+        var currIFS = null;
+        var currPoint = null;
+        var defaultBoost=10000;
+
+        class IFS {
+            constructor(funcs_triangles, id_triangle = [[1, 0], [0, 1], [0, 0]], weights = null) {
+                this.funcs_triangles = funcs_triangles;
+                this.id_triangle = id_triangle;
+                if (this.weights != null) this.weights = weights;
+                else {
+                    this.weights = [];
+                    for (let i = 0; i < this.funcs_triangles.length; i++) {
+                        this.weights[i] = 1/this.funcs_triangles.length;
+                    }
+                }
+            }
+            triangle(index, cnv, ctx) {
+                let pts = this.funcs_triangles[index];
+                IFS.triangle(pts, cnv, ctx);
+            }
+            static triangle(pts, cnv, ctx, ignore = false) {
+                //ctx.fillStyle = 'red';
+                for (let i = 0; i < 3; i++) {
+                    ctx.fillStyle=['red','green','blue'][i];
+                    ctx.beginPath();
+                    ctx.arc((1 + pts[i][0] / 2) * cnv.width / 2, (1 - pts[i][1] / 2) * cnv.height / 2, 2, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+                //ctx.strokeStyle = `rgb(${this.colors[index][0]}, ${this.colors[index][1]}, ${this.colors[index][2]})`;
+                ctx.strokeStyle = '#FFF';
+                ctx.beginPath();
+                ctx.moveTo((1 + pts[0][0] / 2) * cnv.width / 2, (1 - pts[0][1] / 2) * cnv.height / 2);
+                ctx.lineTo((1 + pts[1][0] / 2) * cnv.width / 2, (1 - pts[1][1] / 2) * cnv.height / 2);
+                ctx.lineTo((1 + pts[2][0] / 2) * cnv.width / 2, (1 - pts[2][1] / 2) * cnv.height / 2);
+                ctx.closePath();
+                ctx.stroke();
+                //ctx.triangles.push(this.funcs_triangles[index]); //reference
+                if (!ignore) ctx.triangles.push(pts);//reference
+            }
+
+            id(cnv, ctx) {
+                let pts = this.id_triangle;
+                /*let pts = this.id_triangle;
+                ctx.fillStyle = 'red';
+                for (let i = 0; i < 3; i++) {
+                    ctx.beginPath();
+                    ctx.arc((1 + pts[i][0] / 2) * cnv.width / 2, (1 - pts[i][1] / 2) * cnv.height / 2, 2, 0, 2 * Math.PI);
+                    ctx.fill();
+                }
+                ctx.strokeStyle = '#FFF';
+                ctx.beginPath();
+                ctx.moveTo((1 + pts[0][0] / 2) * cnv.width / 2, (1 - pts[0][1] / 2) * cnv.height / 2);
+                ctx.lineTo((1 + pts[1][0] / 2) * cnv.width / 2, (1 - pts[1][1] / 2) * cnv.height / 2);
+                ctx.lineTo((1 + pts[2][0] / 2) * cnv.width / 2, (1 - pts[2][1] / 2) * cnv.height / 2);
+                ctx.closePath();
+                ctx.stroke();
+                ctx.triangles.push(this.id_triangle); //reference*/ 
+                IFS.triangle(pts, cnv, ctx);
+            }
+            all(cnv, ctx) {
+                for (let i = 0; i < this.funcs_triangles.length; i++) {
+                    this.triangle(i, cnv, ctx);
+                }
+            }
+            weightsDiagram() {
+                darkness3();
+                let r = 0.8 * canvas3.width / 2;
+                let sum = 0;
+                for (let i = 0; i < this.weights.length; i++) {
+                    sum += this.weights[i];
+                }
+                let theta = 0;
+                context3.strokeStyle = '#333';
+                let i = 0;
+                do {
+                    context3.beginPath();
+                    context3.moveTo(canvas3.width / 2, canvas3.height / 2);
+                    context3.lineTo(canvas3.width / 2 + r * Math.cos(theta), canvas3.height / 2 - r * Math.sin(theta));
+                    context3.stroke();
+                    theta += this.weights[i] / sum * 2 * Math.PI;
+                } while (i++ < this.weights.length - 1);
+            }
+        }
+
+        window.onload = function () {
+            canvas = document.getElementById('canvas');
+            canvas1 = document.getElementById('canvas1');
+            canvas2 = document.getElementById('canvas2');
+            canvas3 = document.getElementById('canvas3');
+
+
+            canvas.width = canvas.height = 1000;
+            canvas1.width = canvas1.height = canvas2.width = canvas2.height = 100; canvas3.width = canvas3.height = 100;
+            /*canvas.width = window.innerHeight;
+            canvas.height = window.innerHeight;*/
+            w = canvas.width, h = canvas.height;
+            context = canvas.getContext('2d');
+            context1 = canvas1.getContext('2d');
+            context2 = canvas2.getContext('2d');
+            context3 = canvas3.getContext('2d');
+
+            context1.triangles = [];
+            context2.triangles = [];
+
+            darkness();
+            darkness1();
+            darkness2();
+            darkness3()
+
+            cmd = document.getElementById('cmd');
+            cmd.addEventListener('keydown', (e) => {
+                if (e.keyCode == 13) {
+                    e.preventDefault();
+                    if (/^[\s ]*init +[0-9]*[\s ]*$/.test(cmd.innerText)) {
+                        let k = Number(cmd.innerText.match(/([0-9]+)/g));
+                        let triangles = [];
+                        let colors = []
+                        for (let i = 0; i < k; i++) {
+                            triangles[i] = [];
+                            for (let j = 0; j < 3; j++) {
+                                triangles[i][j] = [2 * Math.random() - 1, 2 * Math.random() - 1];
+                            }
+                            colors[i] = [Math.round(Math.random() * 255), Math.round(Math.random() * 255), Math.round(Math.random() * 255)];
+                        }
+                        //console.log(triangles);
+                        //console.log('alive');
+                        //console.log(k);
+                        currIFS = new IFS(triangles);
+                        currIFS.colors = colors;
+                        loadPackets();
+                        render();
+                        currIFS.weightsDiagram();
+                    }
+                    else if (/^[\s ]*(up|down)[\s ]+(all|id|null|[0-9]+)[\s ]*$/.test(cmd.innerText)) {
+                        let up = cmd.innerText.match(/(up|down)/g)[0] == 'up';
+                        let arg = cmd.innerText.match(/(all|id|null|[0-9]+)/g)[0];
+                        //if(/^[0-9]+$/.test(arg))
+                        switch (arg) {
+                            case 'all':
+                                for (let i = 0; i < currIFS.funcs_triangles.length; i++) {
+                                    currIFS.triangle(i, up ? canvas1 : canvas2, up ? context1 : context2);
+                                }
+                                break;
+                            case 'id':
+                                currIFS.id(up ? canvas1 : canvas2, up ? context1 : context2);
+                                break;
+                            case 'null':
+                                if (up) {
+                                    darkness1();
+                                    context1.triangles = [];
+                                }
+                                else {
+                                    darkness2();
+                                    context2.triangles = [];
+                                }
+                                break;
+                            default:
+                                currIFS.triangle(Number(arg), up ? canvas1 : canvas2, up ? context1 : context2);
+                                break;
+                        }
+                    }
+                    else if(/^[\s ]*boost[\s ]*[0-9]+[\s ]*$/.test(cmd.innerText)){
+                        let n=cmd.innerText.match(/[0-9]+/g);
+                        defaultBoost=n;
+                        render();
+                    }
+                    cmd.innerText = '';
+                }
+            });
+
+            initDrag(canvas1, context1);
+            initDrag(canvas2, context2);
+            initWeightDrag();
+        };
+        function updateCanvas(cnv, ctx, ifs=false, weights=false) {
+            if(!weights){
+                darknessPrime(cnv, ctx);
+                for (let i = 0; i < ctx.triangles.length; i++) {
+                    IFS.triangle(ctx.triangles[i], cnv, ctx, true);
+                }
+            }
+            if(ifs) {
+                loadPackets();
+                render();
+            }
+        }
+        function initWeightDrag(){
+            context3.index=null;
+            context3.last=null;
+            canvas3.addEventListener('mousedown', (e)=>{
+                let sum=0;
+                let pos=getMousePos(canvas3,e);
+                let cvector=[pos.x-canvas3.width/2,canvas3.height/2-pos.y];
+                let cvectorlength=Math.sqrt(cvector[0]**2+cvector[1]**2);
+                cvector[0]/=cvectorlength;
+                cvector[1]/=cvectorlength;
+                //let vertices=[];
+                for(let i=0; i<currIFS.weights.length; i++){
+                    //vertices[i]=[Math.cos(sum*2*Math.PI),Math.sin(sum*2*Math.PI)];
+                    //console.log(pos);
+                    if(cvector[0]*Math.cos(sum*2*Math.PI)+cvector[1]*Math.sin(sum*2*Math.PI)>0.99) { context3.index=i; break; }
+                    sum+=currIFS.weights[i];
+                }
+                context3.last=cvector;
+                //console.log(context3.index);
+            });
+            canvas3.addEventListener('mousemove', (e)=>{
+                if(context3.index==null) return;
+                let pos=getMousePos(canvas3,e);
+                let cvector=[pos.x-canvas3.width/2,canvas3.height/2-pos.y];
+                let cvectorlength=Math.sqrt(cvector[0]**2+cvector[1]**2);
+                cvector[0]/=cvectorlength;
+                cvector[1]/=cvectorlength;
+                // context3.last x cvector
+                let sin=context3.last[0]*cvector[1]-context3.last[1]*cvector[0];
+                let transfer=Math.asin(sin)/(2*Math.PI);
+                currIFS.weights[context3.index]-=transfer;
+                if(context3.index>0) currIFS.weights[context3.index-1]+=transfer;
+                else currIFS.weights[currIFS.weights.length-1]+=transfer;
+                context3.last=cvector;
+                currIFS.weightsDiagram();
+                updateCanvas(null,null,true,true);
+            });
+            canvas3.addEventListener('mouseup', (e)=>{
+                if(context3.index==null) return;
+                context3.index=null;
+                context3.last=null;
+            });
+        }
+        function initDrag(cnv, ctx) {
+            cnv.addEventListener('mousedown', (e) => {
+                //console.log(e.offsetX, e.offsetY);
+                //console.log(getMousePos(cnv1,e));
+                let mousepos = getMousePos(cnv, e);
+                for (let i = 0; i < ctx.triangles.length; i++) {
+                    for (let j = 0; j < 3; j++) {
+                        //window.ok = [[(1 + ctx.triangles[i][j][0] / 2) * cnv.width / 2, (1 - ctx.triangles[i][j][1] / 2) * cnv.height / 2], mousepos];
+                        if (((1 + ctx.triangles[i][j][0] / 2) * cnv.width / 2 - mousepos.x) ** 2 + ((1 - ctx.triangles[i][j][1] / 2) * cnv.height / 2 - mousepos.y) ** 2 < 4) {
+                            window.currPoint = ctx.triangles[i][j];
+                            break;
+                        }
+                    }
+                }
+                if (window.currPoint == null) return;
+                window.currPoint[0] = (mousepos.x/cnv.width*2-1)*2;
+                window.currPoint[1] = ((1-mousepos.y/cnv.height)*2-1)*2;
+                updateCanvas(canvas1, context1);
+                updateCanvas(canvas2, context2, true);
+            });
+            cnv.addEventListener('mousemove', (e) => {
+                if (window.currPoint == null) return;
+                //alert('uu');
+                let mousepos = getMousePos(cnv, e);
+                window.currPoint[0] = (mousepos.x/cnv.width*2-1)*2;
+                window.currPoint[1] = ((1-mousepos.y/cnv.height)*2-1)*2;
+                updateCanvas(canvas1, context1);
+                updateCanvas(canvas2, context2,true);
+            });
+            cnv.addEventListener('mouseup', (e) => {
+                if (currPoint == null) return;
+                let mousepos = getMousePos(cnv, e);
+                window.currPoint[0] = (mousepos.x/cnv.width*2-1)*2;
+                window.currPoint[1] = ((1-mousepos.y/cnv.height)*2-1)*2;
+                updateCanvas(canvas1, context1);
+                updateCanvas(canvas2, context2,true);
+                window.currPoint = null;
+            });
+        }
+        function loadPackets() {
+            var packets = [];
+            var weights = [];
+
+            for (let i = 0; i < currIFS.funcs_triangles.length; i++) {
+                packets[i] = solveSystem([
+
+                    [currIFS.id_triangle[0][0], currIFS.id_triangle[0][1], 1, 0, 0, 0],
+                    [currIFS.id_triangle[1][0], currIFS.id_triangle[1][1], 1, 0, 0, 0],
+                    [currIFS.id_triangle[2][0], currIFS.id_triangle[2][1], 1, 0, 0, 0],
+                    [0, 0, 0, currIFS.id_triangle[0][0], currIFS.id_triangle[0][1], 1],
+                    [0, 0, 0, currIFS.id_triangle[1][0], currIFS.id_triangle[1][1], 1],
+                    [0, 0, 0, currIFS.id_triangle[2][0], currIFS.id_triangle[2][1], 1]
+
+                ], [
+                    currIFS.funcs_triangles[i][0][0],
+                    currIFS.funcs_triangles[i][1][0],
+                    currIFS.funcs_triangles[i][2][0],
+                    currIFS.funcs_triangles[i][0][1],
+                    currIFS.funcs_triangles[i][1][1],
+                    currIFS.funcs_triangles[i][2][1]
+                ]);
+                weights[i] = currIFS.weights[i];
+            }
+
+            window.packets = packets;
+            window.weights = weights;
+        }
+        function affineExperiment(packets, weights, iters) {// packet: [6]
+            let anchor = [Math.random(), Math.random()];
+            //addFirstPointToInitializeAdjustment(anchor[0],anchor[1]);
+            for (let i = 0; i < iters - 1; i++) {
+                anchor = affineTransform(anchor[0], anchor[1], packets[weights.feedRandom()]);
+                //addPointOfAdjustmentCollection(anchor[0],anchor[1]);
+            }
+            addPointOfAdjustmentCollection(anchor[0], anchor[1]);
+        }
+        function affineTransform(x, y, packet) {
+            /*
+                vers I
+                x'=cx+cy+c
+                y'=cx+cy+c
+                h'=ch+c
+
+                vers II
+                x'=cx+cy+ch+c
+                y'=cx+cy+ch+c
+                h'=cx+cy+ch+c
+            */
+            return [
+                packet[0] * x + packet[1] * y + packet[2],
+                packet[3] * x + packet[4] * y + packet[5]
+            ];
+        }
+        function addFirstPointToInitializeAdjustment(x, y) {
+            x_min = x_max = x;
+            y_min = y_max = y;
+            points.push([x, y]);
+        }
+        function addPointOfAdjustmentCollection(x, y) {
+            if (x_min == null) {
+                x_min = x_max = x;
+                y_min = y_max = y;
+            }
+            let redraw = false;
+            if (x < x_min) { x_min = x; redraw = true; }
+            if (x > x_max) { x_max = x; redraw = true; }
+            if (y < y_min) { y_min = y; redraw = true; }
+            if (y > y_max) { y_max = y; redraw = true; }
+            points.push([x, y]);
+            return redraw;
+        }
+        function darkness() {
+            context.fillStyle = '#000';
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = '#FFF';
+        }
+        function darkness1() { //obsolete, use darknessPrime instead
+            context1.fillStyle = '#333';
+            context1.fillRect(0, 0, canvas1.width, canvas1.height);
+            context1.strokeStyle = '#000';
+            context1.beginPath();
+            context1.moveTo(canvas1.width / 2, 0);
+            context1.lineTo(canvas1.width / 2, canvas1.height);
+            context1.stroke();
+            context1.moveTo(0, canvas1.height / 2);
+            context1.lineTo(canvas1.width, canvas1.height / 2);
+            context1.stroke();
+        }
+        function darkness2() { //obsolete, use darknessPrime instead
+            context2.fillStyle = '#333';
+            context2.fillRect(0, 0, canvas2.width, canvas2.height);
+            context2.strokeStyle = '#000';
+            context2.beginPath();
+            context2.moveTo(canvas2.width / 2, 0);
+            context2.lineTo(canvas2.width / 2, canvas2.height);
+            context2.stroke();
+            context2.moveTo(0, canvas2.height / 2);
+            context2.lineTo(canvas2.width, canvas2.height / 2);
+            context2.stroke();
+        }
+        function darknessPrime(cnv, ctx) {
+            ctx.fillStyle = '#333';
+            ctx.fillRect(0, 0, cnv.width, cnv.height);
+            ctx.strokeStyle = '#000';
+            ctx.beginPath();
+            ctx.moveTo(cnv.width / 2, 0);
+            ctx.lineTo(cnv.width / 2, cnv.height);
+            ctx.stroke();
+            ctx.moveTo(0, cnv.height / 2);
+            ctx.lineTo(cnv.width, cnv.height / 2);
+            ctx.stroke();
+        }
+        function darkness3() {
+            context3.fillStyle = '#333';
+            context3.fillRect(0, 0, canvas3.width, canvas3.height);
+            context3.fillStyle = '#FFF';
+            context3.beginPath();
+            context3.arc(canvas3.width / 2, canvas3.height / 2, 0.8 * canvas3.width / 2, 0, 2 * Math.PI);
+            context3.stroke();
+            context3.fill();
+        }
+        function printPoints() {
+            darkness();
+            for (let i = 0; i < points.length; i++) {
+                printPoint(points[i][0], points[i][1]);
+            }
+        }
+        function printPoint(x, y) {
+            context.fillRect(xCoordinateTransform(x, y), yCoordinateTransform(x, y), 1, 1);
+        }
+        function xCoordinateTransform(x, y) {
+            return (x - x_min) / (x_max - x_min) * w;
+        }
+        function yCoordinateTransform(x, y) {
+            return (y_max - y) / (y_max - y_min) * h;
+        }
+        Array.prototype.feedRandom = function () {
+            let sum = 0;
+            for (let i = 0; i < this.length; i++) sum += this[i];
+            let rand = Math.random();
+            let weights = [];
+            for (let i = 0; i < this.length; i++) {
+                weights[i] = this[i] / sum;
+            }
+            let point = 0;
+            for (let i = 0; i < weights.length; i++) {
+                if (point <= rand && rand < point + weights[i]) return i;
+                else point += weights[i];
+            }
+        };
+        function determinant(matrix_rows) {
+            if (matrix_rows.length == 1) return matrix_rows[0][0];
+            else {
+                let sum = 0;
+                for (let i = 0; i < matrix_rows.length; i++) {
+                    let minor = [];
+                    for (let j1 = 1; j1 < matrix_rows.length; j1++) {
+                        minor[j1 - 1] = [];
+                        for (let j2 = 0; j2 < matrix_rows.length; j2++) {
+                            if (j2 != i) minor[j1 - 1].push(matrix_rows[j1][j2]);
+                        }
+                    }
+                    sum += (-1) ** i * matrix_rows[0][i] * determinant(minor);
+                }
+                return sum;
+            }
+        }
+        function solveSystem(matrix, aug) {
+            //console.log(aug);
+            let W = determinant(matrix);
+            if (W == 0) return null;
+            let solutions = [];
+            for (let i = 0; i < aug.length; i++) {
+                let rep = [];
+                for (let j1 = 0; j1 < aug.length; j1++) {
+                    rep[j1] = [];
+                    for (let j2 = 0; j2 < aug.length; j2++) {
+                        rep[j1][j2] = j2 == i ? aug[j1] : matrix[j1][j2];
+                    }
+                }
+                solutions[i] = determinant(rep) / W;
+            }
+            return solutions;
+        }
+        function packetator(k) {
+            var packets = [];
+            var weights = [];
+            for (let i = 0; i < k; i++) {
+                weights[i] = Math.floor(100 * Math.random());
+                packets[i] = [];
+                /*for (let j = 0; j < 6; j++) {
+                    packets[i][j] = 2 * Math.random() - 1;
+                }*/
+                let angle = 2 * Math.PI * Math.random();
+                let a = 1 / 3 + Math.random() / 6;
+                let b = 1 / 4 + Math.random() / 2;
+                packets[i][2] = 2 * Math.random() - 1;
+                packets[i][5] = 2 * Math.random() - 1;
+                packets[i][0] = a * Math.cos(angle);
+                packets[i][1] = a * Math.sin(angle);
+                packets[i][3] = -b * Math.sin(angle);
+                packets[i][4] = b * Math.cos(angle);
+            }
+            window.packets = packets;
+            window.weights = weights;
+        }
+        function bang(k, n = 100000, m = 1000) {
+            packetator(k);
+            for (let i = 0; i < n; i++) {
+                affineExperiment(packets, weights, m);
+            }
+            //affineExperiment(packets,weights,100);
+            printPoints();
+        }
+        function render(n = null, m = 100) {
+            if(n==null) n=defaultBoost;
+            reset();
+            for (let i = 0; i < n; i++) {
+                affineExperiment(packets, weights, m);
+            }
+            printPoints();
+        }
+        function reset() {
+            x_min = x_max = y_min = y_max = null;
+            points = [];
+        }
+        function curr(n = 100000, m = 1000) {
+            for (let i = 0; i < n; i++) {
+                affineExperiment(packets, weights, m);
+            }
+            //affineExperiment(packets,weights,n);
+            printPoints();
+        }
+        function BarnsleyFarn() {
+            var packets = [[0.85, 0.04, 0, -0.04, 0.85, 1.6], [-0.15, 0.28, 0, 0.26, 0.24, 0.44], [0.2, -0.26, 0, 0.23, 0.22, 1.6], [0, 0, 0, 0, 0.16, 0]];
+            var weights = [85, 7, 7, 1];
+            for (let i = 0; i < 100000; i++) {
+                affineExperiment(packets, weights, 1000);
+            }
+            printPoints();
+        }
+        function BarnsleyFarnExtra(disturb) {
+            var packets = [[0.85, 0.04, 0, -0.04, 0.85, 1.6], [-0.15, 0.28, 0, 0.26, 0.24, 0.44], [0.2, -0.26, 0, 0.23, 0.22, 1.6], [0, 0, 0, 0, 0.16, 0]];
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 6; j++) {
+                    packets[i][j] = packets[i][j] + (2 * Math.random() - 1) * disturb;
+                }
+            }
+            var weights = [85, 7, 7, 1];
+            for (let i = 0; i < 100000; i++) {
+                affineExperiment(packets, weights, 100);
+            }
+            printPoints();
+        }
+        function BarnsleyFarnExtraExtra(disturbCoefficient, disturbWeight) {
+            var packets = [[0.85, 0.04, 0, -0.04, 0.85, 1.6], [-0.15, 0.28, 0, 0.26, 0.24, 0.44], [0.2, -0.26, 0, 0.23, 0.22, 1.6], [0, 0, 0, 0, 0.16, 0]];
+            for (let i = 0; i < 4; i++) {
+                for (let j = 0; j < 6; j++) {
+                    packets[i][j] = packets[i][j] + (2 * Math.random() - 1) * disturbCoefficient;
+                }
+            }
+            var weights = [85 + (2 * Math.random() - 1) * disturbWeight * 85, 7 + (2 * Math.random() - 1) * disturbWeight * 7, 7 + (2 * Math.random() - 1) * disturbWeight * 7, 1 + (2 * Math.random() - 1) * disturbWeight];
+            for (let i = 0; i < 100000; i++) {
+                affineExperiment(packets, weights, 100);
+            }
+            printPoints();
+        }
+        function SierpinskiTriangle() {
+            var packets = [];
+
+        }
+        function SierpinskiTriangleExtra(disturb) {
+            /*
+                (-1,0), (1,0), (0,1)
+                x'1 = (x-1)/2+y
+            */
+            var packets = [[.5, 0, 0, 0, .5, 0], [.5, 0, 2, 0, .5, 0], [.5, 0, 1, 0, .5, Math.sqrt(3)]];
+
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 6; j++) {
+                    packets[i][j] = packets[i][j] + (2 * Math.random() - 1) * disturb;
+                }
+            }
+            var weights = [1, 1, 1];
+            for (let i = 0; i < 100000; i++) {
+                affineExperiment(packets, weights, 100);
+            }
+            printPoints();
+        }
+        function SierpinskiTriangleExtraExtra(disturbCoefficient, disturbWeight) {
+            /*
+                (-1,0), (1,0), (0,1)
+                x'1 = (x-1)/2+y
+            */
+            var packets = [[.5, 0, 0, 0, .5, 0], [.5, 0, 2, 0, .5, 0], [.5, 0, 1, 0, .5, Math.sqrt(3)]];
+
+            for (let i = 0; i < 3; i++) {
+                for (let j = 0; j < 6; j++) {
+                    packets[i][j] = packets[i][j] + (2 * Math.random() - 1) * disturbCoefficient;
+                }
+            }
+            var weights = [1 + (2 * Math.random() - 1) * disturbWeight, 1 + (2 * Math.random() - 1) * disturbWeight, 1 + (2 * Math.random() - 1) * disturbWeight];
+            //var weights = new Int32Array([1,1,1]);
+            /*weights[0]=1+(2*Math.random()-1)*disturbWeight;
+            weights[1]=1+(2*Math.random()-1)*disturbWeight;
+            weights[2]=1+(2*Math.random()-1)*disturbWeight;*/
+            for (let i = 0; i < 100000; i++) {
+                affineExperiment(packets, weights, 100);
+            }
+            printPoints();
+        }
+
+        // STACKOVERFLOW mouse position getter
+        function getMousePos(cnv, evt) {
+            var rect = cnv.getBoundingClientRect(), // abs. size of element
+                scaleX = cnv.width / rect.width,    // relationship bitmap vs. element for X
+                scaleY = cnv.height / rect.height;  // relationship bitmap vs. element for Y
+
+            return {
+                x: (evt.clientX - rect.left) * scaleX,   // scale mouse coordinates after they have
+                y: (evt.clientY - rect.top) * scaleY     // been adjusted to be relative to element
+            }
+        }
+        /*function getMousePos(canvas, evt) {
+            var rect = canvas.getBoundingClientRect();
+            return {
+                x: evt.clientX - rect.left,
+                y: evt.clientY - rect.top
+            };
+        }*/
+
+    </script>
+</body>
+
+</html>
